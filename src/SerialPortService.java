@@ -14,12 +14,14 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
     private OutputStream outputStream;
 
     private static final int PACKET_SIZE = 4096;
+    private static final int PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS = 370;
 
     public static final byte RECEIVE_TYPE_STRING_MESSAGE = 5;
     public static final byte RECEIVE_TYPE_FILE = 10;
 
     private SerialPortMessageReceivedListener messageReceivedListener;
     private SerialPortFileReceivedListener fileReceivedListener;
+    private SerialPortTransmitFileProgressListener fileProgressListener;
 
     public static SerialPortService getInstance() {
         if (serialPortService == null) {
@@ -38,6 +40,18 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
 
     interface SerialPortMessageReceivedListener {
         void receiveMessage(String message);
+    }
+
+    interface SerialPortTransmitFileProgressListener {
+        void progressFile(int i);
+    }
+
+    public void setSerialPortTransmitFileProgressListener(SerialPortTransmitFileProgressListener listener) {
+        fileProgressListener = listener;
+    }
+
+    public void removeSerialPortTransmitFileProgressListener() {
+        fileProgressListener = null;
     }
 
     public void setSerialPortFileReceivedListener(SerialPortFileReceivedListener listener) {
@@ -69,7 +83,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
 
     private static int getCountPackets(int lengthBuff) {
         double d = (double) lengthBuff / (double) PACKET_SIZE;
-        return (d % 4096 == 0.0) ? (int) d : (int) (++d);
+        return (d % PACKET_SIZE == 0.0) ? (int) d : (int) (++d);
     }
 
     private static byte[] intToByteArr(int i) {
@@ -140,14 +154,19 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         buffData = concatArray(concatArray(new byte[]{type}, intToByteArr(buffData.length)), buffData);
 
         int countPacks = getCountPackets(buffData.length);
+        float progress = 100.0f / countPacks;
         for (int i = 0; i < countPacks; i++) {
-            byte[] b = Arrays.copyOfRange(buffData, i * 4096, (i + 1) * 4096);
+            byte[] b = Arrays.copyOfRange(buffData, i * PACKET_SIZE, (i + 1) * PACKET_SIZE);
             write(b);
 
             try {
-                Thread.sleep(5);
+                Thread.sleep(PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS);
             } catch (InterruptedException e) {
                 e.printStackTrace();
+            }
+
+            if (fileProgressListener != null && type == RECEIVE_TYPE_FILE) {
+                fileProgressListener.progressFile((int) progress++);
             }
         }
     }

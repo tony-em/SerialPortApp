@@ -19,6 +19,8 @@ public class Window extends JFrame {
     private JTextArea textArea;
     private JRadioButton chbStr;
     private JRadioButton chbFile;
+    private JProgressBar progressFile;
+    private JButton sendBtn;
 
     public Window(String name) {
         super(name);
@@ -56,7 +58,7 @@ public class Window extends JFrame {
         group.add(chbFile);
 
         textMsg = new JTextField();
-        JButton sendBtn = new JButton("Send");
+        sendBtn = new JButton("Send");
         sendBtn.setEnabled(false);
         sendBtn.setFocusPainted(true);
         textMsg.setEnabled(false);
@@ -74,12 +76,20 @@ public class Window extends JFrame {
                     }
 
                     if (chbFile.isSelected() && !textFile.getText().isEmpty() && file != null) {
-                        try {
-                            serialPortService.writeFile(file);
-                            addLogData("Transmit<File> size: " + file.length() + " bytes >>> " + file.getName());
-                        } catch (IOException e1) {
-                            addLogData("File error");
-                        }
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    serialPortService.writeFile(file);
+                                } catch (IOException e1) {
+                                    addLogData("File error");
+                                    e1.printStackTrace();
+                                }
+                            }
+                        }).start();
+
+                        sendBtn.setEnabled(false);
+                        addLogData("Transmit<File> size: " + file.length() + " bytes >>> " + file.getName());
                     }
                 } else {
                     showMsgBox("Port is not open");
@@ -88,7 +98,6 @@ public class Window extends JFrame {
         });
         p3.add(BorderLayout.CENTER, textMsg);
         p3.add(BorderLayout.EAST, sendBtn);
-
         this.getRootPane().setDefaultButton(sendBtn);
 
         JLabel comLabel = new JLabel("Select COM port: ");
@@ -116,6 +125,7 @@ public class Window extends JFrame {
 
                     serialPortService.setSerialPortMessageReceivedListener(messageReceivedListener);
                     serialPortService.setSerialPortFileReceivedListener(fileReceivedListener);
+                    serialPortService.setSerialPortTransmitFileProgressListener(fileProgressListener);
 
                 } else {
                     showMsgBox("Error open port. The selected port is already busy");
@@ -127,6 +137,7 @@ public class Window extends JFrame {
             public void actionPerformed(ActionEvent e) {
                 serialPortService.removeSerialPortFileReceivedListener();
                 serialPortService.removeSerialPortMessageReceivedListener();
+                serialPortService.removeSerialPortTransmitFileProgressListener();
 
                 try {
                     serialPortService.closePort();
@@ -162,6 +173,11 @@ public class Window extends JFrame {
                 }
             }
         });
+        progressFile = new JProgressBar(JProgressBar.HORIZONTAL);
+        progressFile.setMinimum(0);
+        progressFile.setMaximum(100);
+        progressFile.setStringPainted(true);
+        p2.add(BorderLayout.WEST, progressFile);
         p2.add(BorderLayout.CENTER, textFile);
         p2.add(BorderLayout.EAST, openFileDialogBtn);
         p2.setEnabled(false);
@@ -188,7 +204,7 @@ public class Window extends JFrame {
         container.add(BorderLayout.CENTER, scrollPane);
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setSize(600, 600);
+        setSize(1024, 800);
         setVisible(true);
         setResizable(false);
     }
@@ -216,6 +232,16 @@ public class Window extends JFrame {
         @Override
         public void receiveMessage(String message) {
             addLogData("Receive<Message> size: " + message.getBytes().length + " bytes >>> " + message);
+        }
+    };
+
+    private SerialPortService.SerialPortTransmitFileProgressListener fileProgressListener = new SerialPortService.SerialPortTransmitFileProgressListener() {
+        @Override
+        public void progressFile(int i) {
+            progressFile.setValue(i);
+
+            if (progressFile.getValue() == 100)
+                sendBtn.setEnabled(true);
         }
     };
 }
