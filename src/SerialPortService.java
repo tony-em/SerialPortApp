@@ -6,6 +6,7 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 public class SerialPortService implements ReceiveAllPacksCompleteListener {
 
@@ -14,19 +15,22 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
     private OutputStream outputStream;
 
     private static final int PACKET_SIZE = 4096;
-    private static final int PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS = 370;
+    private static final int PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS = 370;  // 370
 
     public static final byte RECEIVE_TYPE_STRING_MESSAGE = 5;
     public static final byte RECEIVE_TYPE_FILE = 10;
 
     private SerialPortMessageReceivedListener messageReceivedListener;
     private SerialPortFileReceivedListener fileReceivedListener;
-    private SerialPortTransmitFileProgressListener fileProgressListener;
+    private SerialPortTransmitFileProgressListener transmitFileProgressListener;
+    private SerialPortReceiveFileProgressListener receiveFileProgressListener;
 
     public static SerialPortService getInstance() {
         if (serialPortService == null) {
             serialPortService = new SerialPortService();
         }
+
+//        serialPortService.serialPort.setComPortTimeouts();
 
         return serialPortService;
     }
@@ -43,15 +47,27 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
     }
 
     interface SerialPortTransmitFileProgressListener {
-        void progressFile(int i);
+        void progressTransmitFile(int i);
+    }
+
+    interface SerialPortReceiveFileProgressListener {
+        void progressReceiveFile(int i);
+    }
+
+    public void setSerialPortReceiveFileProgressListener(SerialPortReceiveFileProgressListener listener) {
+        receiveFileProgressListener = listener;
+    }
+
+    public void removeSerialPortReceiveFileProgressListener() {
+        receiveFileProgressListener = null;
     }
 
     public void setSerialPortTransmitFileProgressListener(SerialPortTransmitFileProgressListener listener) {
-        fileProgressListener = listener;
+        transmitFileProgressListener = listener;
     }
 
     public void removeSerialPortTransmitFileProgressListener() {
-        fileProgressListener = null;
+        transmitFileProgressListener = null;
     }
 
     public void setSerialPortFileReceivedListener(SerialPortFileReceivedListener listener) {
@@ -155,18 +171,20 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
 
         int countPacks = getCountPackets(buffData.length);
         float progress = 100.0f / countPacks;
+        float p = progress;
         for (int i = 0; i < countPacks; i++) {
+            if (transmitFileProgressListener != null && type == RECEIVE_TYPE_FILE) {
+                transmitFileProgressListener.progressTransmitFile((int) p);
+                p += progress;
+            }
+
             byte[] b = Arrays.copyOfRange(buffData, i * PACKET_SIZE, (i + 1) * PACKET_SIZE);
             write(b);
 
             try {
-                Thread.sleep(PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS);
+                TimeUnit.MILLISECONDS.sleep(PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS);
             } catch (InterruptedException e) {
                 e.printStackTrace();
-            }
-
-            if (fileProgressListener != null && type == RECEIVE_TYPE_FILE) {
-                fileProgressListener.progressFile((int) progress++);
             }
         }
     }
@@ -276,7 +294,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         }
     }
 
-    private static class SerialPortPacketReceiver implements SerialPortPacketListener {
+    private class SerialPortPacketReceiver implements SerialPortPacketListener {
 
         private ReceiveAllPacksCompleteListener receiveAllPacksCompleteListener;
 
@@ -293,6 +311,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         private byte receiveType = -1;
         private int dataSize = 0;
         private byte[] receiveBuff = new byte[0];
+        private float progress, stepProgress;
 
         @Override
         public int getPacketSize() {
@@ -312,10 +331,16 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
                 receiveType = buff[0];
                 dataSize = byteArrToInt(Arrays.copyOfRange(buff, 1, 5));
                 countPacks = getCountPackets(dataSize + 5);
+                stepProgress = 100.0f / countPacks;
             }
 
             writeToReceiveBuff(buff);
             packetCounter++;
+            progress += stepProgress;
+
+            if (receiveFileProgressListener != null && receiveType == RECEIVE_TYPE_FILE) {
+                receiveFileProgressListener.progressReceiveFile((int) progress);
+            }
 
             if (packetCounter == countPacks) {
                 if (receiveAllPacksCompleteListener != null) {
@@ -327,6 +352,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
                 receiveType = -1;
                 dataSize = 0;
                 receiveBuff = new byte[0];
+                progress = 0;
             }
         }
 

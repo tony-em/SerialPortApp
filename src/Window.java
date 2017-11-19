@@ -125,7 +125,8 @@ public class Window extends JFrame {
 
                     serialPortService.setSerialPortMessageReceivedListener(messageReceivedListener);
                     serialPortService.setSerialPortFileReceivedListener(fileReceivedListener);
-                    serialPortService.setSerialPortTransmitFileProgressListener(fileProgressListener);
+                    serialPortService.setSerialPortTransmitFileProgressListener(transmitFileProgressListener);
+                    serialPortService.setSerialPortReceiveFileProgressListener(receiveFileProgressListener);
 
                 } else {
                     showMsgBox("Error open port. The selected port is already busy");
@@ -138,6 +139,7 @@ public class Window extends JFrame {
                 serialPortService.removeSerialPortFileReceivedListener();
                 serialPortService.removeSerialPortMessageReceivedListener();
                 serialPortService.removeSerialPortTransmitFileProgressListener();
+                serialPortService.removeSerialPortReceiveFileProgressListener();
 
                 try {
                     serialPortService.closePort();
@@ -204,7 +206,7 @@ public class Window extends JFrame {
         container.add(BorderLayout.CENTER, scrollPane);
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setSize(1024, 800);
+        setSize(900, 400);
         setVisible(true);
         setResizable(false);
     }
@@ -235,10 +237,23 @@ public class Window extends JFrame {
         }
     };
 
-    private SerialPortService.SerialPortTransmitFileProgressListener fileProgressListener = new SerialPortService.SerialPortTransmitFileProgressListener() {
+    private SerialPortService.SerialPortTransmitFileProgressListener transmitFileProgressListener = new SerialPortService.SerialPortTransmitFileProgressListener() {
         @Override
-        public void progressFile(int i) {
+        public void progressTransmitFile(int i) {
             progressFile.setValue(i);
+
+            if (progressFile.getValue() == 100)
+                sendBtn.setEnabled(true);
+        }
+    };
+
+    private SerialPortService.SerialPortReceiveFileProgressListener receiveFileProgressListener = new SerialPortService.SerialPortReceiveFileProgressListener() {
+        @Override
+        public void progressReceiveFile(int i) {
+            progressFile.setValue(i);
+
+            if (sendBtn.isEnabled())
+                sendBtn.setEnabled(false);
 
             if (progressFile.getValue() == 100)
                 sendBtn.setEnabled(true);
