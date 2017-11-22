@@ -7,6 +7,7 @@ import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 public class Window extends JFrame {
 
@@ -19,7 +20,8 @@ public class Window extends JFrame {
     private JTextArea textArea;
     private JRadioButton chbStr;
     private JRadioButton chbFile;
-    private JProgressBar progressFile;
+    private JProgressBar progressReceiveFile;
+    private JProgressBar progressTransmitFile;
     private JButton sendBtn;
 
     public Window(String name) {
@@ -70,12 +72,29 @@ public class Window extends JFrame {
 
                     // transmit data
                     if (chbStr.isSelected() && !textMsg.getText().trim().isEmpty()) {
-                        serialPortService.writeStringMessage(textMsg.getText().trim());
-                        addLogData("Transmit<Message> size: " + textMsg.getText().trim().getBytes().length + " bytes >>> " + textMsg.getText().trim());
+                        String s = textMsg.getText().trim();
+                        addLogData("Transmit<Message> size: " + s.getBytes().length + " bytes >>> " + s);
                         textMsg.setText("");
+
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                serialPortService.writeStringMessage(s);
+                            }
+                        }).start();
                     }
 
                     if (chbFile.isSelected() && !textFile.getText().isEmpty() && file != null) {
+                        int checksum = 0;
+                        try {
+                            checksum = ByteBuffer.wrap(CRC16.getChecksumBytesArr(SerialPortService.getFileBytes(file))).getShort();
+                        } catch (IOException e1) {
+                            e1.printStackTrace();
+                        }
+                        String ch = Integer.toHexString(checksum).toUpperCase();
+                        addLogData("Transmit<File> size: " + file.length() + " bytes >>> " + file.getName()
+                                + " CRC16: 0x" + ch.substring(ch.length() - 4));
+
                         new Thread(new Runnable() {
                             @Override
                             public void run() {
@@ -89,7 +108,6 @@ public class Window extends JFrame {
                         }).start();
 
                         sendBtn.setEnabled(false);
-                        addLogData("Transmit<File> size: " + file.length() + " bytes >>> " + file.getName());
                     }
                 } else {
                     showMsgBox("Port is not open");
@@ -154,12 +172,6 @@ public class Window extends JFrame {
                 textMsg.setEnabled(false);
             }
         });
-        p1.add(chbStr);
-        p1.add(chbFile);
-        p1.add(comLabel);
-        p1.add(boxCOMPorts);
-        p1.add(btnConnect);
-        p1.add(btnDisconnect);
 
         textFile = new JTextField();
         textFile.setEditable(false);
@@ -175,14 +187,28 @@ public class Window extends JFrame {
                 }
             }
         });
-        progressFile = new JProgressBar(JProgressBar.HORIZONTAL);
-        progressFile.setMinimum(0);
-        progressFile.setMaximum(100);
-        progressFile.setStringPainted(true);
-        p2.add(BorderLayout.WEST, progressFile);
+        progressReceiveFile = new JProgressBar(JProgressBar.HORIZONTAL);
+        progressTransmitFile = new JProgressBar(JProgressBar.HORIZONTAL);
+        progressReceiveFile.setMinimum(0);
+        progressReceiveFile.setMaximum(100);
+        progressReceiveFile.setStringPainted(true);
+        progressReceiveFile.setString("Received file");
+        progressTransmitFile.setMinimum(0);
+        progressTransmitFile.setMaximum(100);
+        progressTransmitFile.setString("Transmitted file");
+        progressTransmitFile.setStringPainted(true);
+        //p2.add(BorderLayout.WEST, progressReceiveFile);
+        p1.add(progressReceiveFile);
+        p1.add(progressTransmitFile);
         p2.add(BorderLayout.CENTER, textFile);
         p2.add(BorderLayout.EAST, openFileDialogBtn);
         p2.setEnabled(false);
+        p1.add(chbStr);
+        p1.add(chbFile);
+        p1.add(comLabel);
+        p1.add(boxCOMPorts);
+        p1.add(btnConnect);
+        p1.add(btnDisconnect);
 
         pp.add(BorderLayout.NORTH, p2);
         pp.add(BorderLayout.SOUTH, p1);
@@ -225,8 +251,12 @@ public class Window extends JFrame {
 
     private SerialPortService.SerialPortFileReceivedListener fileReceivedListener = new SerialPortService.SerialPortFileReceivedListener() {
         @Override
-        public void receiveFile(File file) {
-            addLogData("Receive<File>: size: " + file.length() + " bytes >>> " + file.getAbsolutePath());
+        public void receiveFile(File file, int receivedChecksum, int calcChecksum) {
+            String ch1 = Integer.toHexString(receivedChecksum).toUpperCase(),
+                    ch2 = Integer.toHexString(calcChecksum).toUpperCase();
+            addLogData("Receive<File>: size: " + file.length() + " bytes >>> " + file.getAbsolutePath() +
+                    " CRC16: Received: 0x" + ch1.substring(ch1.length() - 4) +
+                    " Calc: 0x" + ch1.substring(ch2.length() - 4));
         }
     };
 
@@ -240,9 +270,9 @@ public class Window extends JFrame {
     private SerialPortService.SerialPortTransmitFileProgressListener transmitFileProgressListener = new SerialPortService.SerialPortTransmitFileProgressListener() {
         @Override
         public void progressTransmitFile(int i) {
-            progressFile.setValue(i);
+            progressTransmitFile.setValue(i);
 
-            if (progressFile.getValue() == 100)
+            if (progressTransmitFile.getValue() == 100)
                 sendBtn.setEnabled(true);
         }
     };
@@ -250,13 +280,7 @@ public class Window extends JFrame {
     private SerialPortService.SerialPortReceiveFileProgressListener receiveFileProgressListener = new SerialPortService.SerialPortReceiveFileProgressListener() {
         @Override
         public void progressReceiveFile(int i) {
-            progressFile.setValue(i);
-
-            if (sendBtn.isEnabled())
-                sendBtn.setEnabled(false);
-
-            if (progressFile.getValue() == 100)
-                sendBtn.setEnabled(true);
+            progressReceiveFile.setValue(i);
         }
     };
 }

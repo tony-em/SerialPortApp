@@ -15,7 +15,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
     private OutputStream outputStream;
 
     private static final int PACKET_SIZE = 4096;
-    private static final int PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS = 370;  // 370
+    private static final int PACKET_4KB_115200BAUD_TRANSMIT_TIMEOUT_MS = 40;  // 370
 
     public static final byte RECEIVE_TYPE_STRING_MESSAGE = 5;
     public static final byte RECEIVE_TYPE_FILE = 10;
@@ -39,7 +39,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
     }
 
     interface SerialPortFileReceivedListener {
-        void receiveFile(File file);
+        void receiveFile(File file, int receivedChecksum, int calcChecksum);
     }
 
     interface SerialPortMessageReceivedListener {
@@ -132,7 +132,7 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         return s;
     }
 
-    public void writeFile(File file) throws IOException {
+    public static byte[] getFileBytes(File file) throws IOException {
         String[] fileParts = file.getName().split("\\.");
         String fileExtension = fileParts[fileParts.length - 1];
         StringBuilder fileName = new StringBuilder("");
@@ -146,7 +146,14 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         byte[] fExtSize = {(byte) fExtBytes.length};
         byte[] fileBytes = Files.readAllBytes(file.toPath());
 
-        fileBytes = concatArray(concatArray(concatArray(fNameSize, fNameBytes), concatArray(fExtSize, fExtBytes)), fileBytes);
+        return concatArray(concatArray(concatArray(fNameSize, fNameBytes), concatArray(fExtSize, fExtBytes)), fileBytes);
+    }
+
+    public void writeFile(File file) throws IOException {
+        byte[] fileBytes = getFileBytes(file);
+
+        byte[] crc16 = CRC16.getChecksumBytesArr(fileBytes);
+        fileBytes = concatArray(crc16, fileBytes);
         sendPacks(RECEIVE_TYPE_FILE, fileBytes);
     }
 
@@ -174,7 +181,8 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
         float p = progress;
         for (int i = 0; i < countPacks; i++) {
             if (transmitFileProgressListener != null && type == RECEIVE_TYPE_FILE) {
-                transmitFileProgressListener.progressTransmitFile((int) p);
+                if (i == countPacks - 1) transmitFileProgressListener.progressTransmitFile(100);
+                else transmitFileProgressListener.progressTransmitFile((int) (p));
                 p += progress;
             }
 
@@ -281,7 +289,12 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
             case RECEIVE_TYPE_FILE:
                 if (fileReceivedListener != null) {
                     try {
-                        fileReceivedListener.receiveFile(getFileByByteArr(receiveBuff));
+                        byte[] crc = Arrays.copyOfRange(receiveBuff, 0, 2);
+                        int checksum = ByteBuffer.wrap(crc).getShort();
+                        byte[] b = Arrays.copyOfRange(receiveBuff, 2, receiveBuff.length);
+                        int checksum2 = ByteBuffer.wrap(CRC16.getChecksumBytesArr(b)).getShort();
+                        fileReceivedListener.receiveFile(getFileByByteArr(b), checksum,
+                                checksum2);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -339,7 +352,8 @@ public class SerialPortService implements ReceiveAllPacksCompleteListener {
             progress += stepProgress;
 
             if (receiveFileProgressListener != null && receiveType == RECEIVE_TYPE_FILE) {
-                receiveFileProgressListener.progressReceiveFile((int) progress);
+                if (packetCounter == countPacks) receiveFileProgressListener.progressReceiveFile(100);
+                else receiveFileProgressListener.progressReceiveFile((int) progress);
             }
 
             if (packetCounter == countPacks) {
